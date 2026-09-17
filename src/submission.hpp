@@ -11,13 +11,12 @@ class Grid {
 private:
   std::size_t rows_;
   std::size_t cols_;
+  double* data_; 
   
 
 public:
-  double* data_; 
   Grid(std::size_t rows, std::size_t cols): rows_{rows}, cols_{cols}, data_{ static_cast<double*>(std::aligned_alloc(64, rows * cols * sizeof(double)))}{} // aligned to 64 byte cache line size.
-  // aligns it to cache word size
-  ~Grid() { std::free(data_); }
+ ~Grid() { std::free(data_); }
 
   double& operator()(std::size_t i, std::size_t j) {
     return data_[i * cols_ + j];
@@ -26,6 +25,10 @@ public:
   double operator()(std::size_t i, std::size_t j) const {
     return data_[i * cols_ + j];
   }
+
+  double* data() { return data_; }
+  const double* data() const { return data_; }
+
   int num_rows() const { return rows_; }
   int num_cols() const { return cols_; }
   bool boundary_copied = false; // flag to indicate if the boundary has been copied or not, so boundary is not copied multiple times.
@@ -36,7 +39,7 @@ public:
 void five_point_stencil_helper (const double* __restrict__ old_list, double* __restrict__ new_list, int num_cols, int num_rows){
 
   const int stride = 16;
-  // with a stride length of 16, each block accesses 16 x 1024 x 4  x sizeof(double) = 0.5MB. My laptop CPU has 1.2MB L2 cache per core
+  // with a stride length of 16, each block accesses 16 x 1024 x 2  x sizeof(double) = 0.25MB. My laptop CPU has 1.2MB L2 cache per core
   // at 2 threads a core, this is still within the limits
 
   #pragma omp parallel for
@@ -46,7 +49,7 @@ void five_point_stencil_helper (const double* __restrict__ old_list, double* __r
       const double* old_center = old_list + row * num_cols + 1;
       const double* old_bottom = old_list + (row + 1) * num_cols + 1;
       double* new_center = new_list + row * num_cols + 1;
-      #pragma omp simd // this list can be executed in SIMD fashion, as each output element is independent of the others
+      #pragma omp simd // as the output list elements are independent, this can be run with SIMD
       for (int i = 0; i < num_cols - 2; ++i) {
           new_center[i] = 0.5 * old_center[i] + 0.125 * (old_top[i] + old_bottom[i] + old_center[i-1] + old_center[i+1]);
       } 
@@ -71,8 +74,12 @@ void apply_stencil(const Grid& old_grid, Grid& new_grid) { // transfers boundari
     }
   }
   new_grid.boundary_copied = true;
-  five_point_stencil_helper(old_grid.data_, new_grid.data_, cols, rows); 
+  five_point_stencil_helper(
+    old_grid.data(),
+    new_grid.data(),
+    cols,
+    rows
+  ); 
 
 
 }
-
